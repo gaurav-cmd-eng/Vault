@@ -109,3 +109,18 @@ class ObjectRepairResponse(BaseModel):
     missing_replicas: int
     unavailable_replicas: int = 0
     message: str
+
+
+# --- Phase 4 Dashboard & Observability Models ---
+
+class ClusterStatsResponse(BaseModel):
+    """Aggregated real-time cluster metrics for dashboard."""
+    total_nodes: int
+    active_nodes: int
+    offline_nodes: int
+    total_objects: int
+    total_storage_used_bytes: int
+    healthy_replicas: int
+    corrupt_replicas: int
+    missing_replicas: int
+    cluster_status: str  # "OK" or "DEGRADED"
