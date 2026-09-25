@@ -1,0 +1,981 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AEGIS // Distributed Storage Command Center</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            aegis: {
+              950: '#060911',
+              900: '#0a0e1a',
+              850: '#0f1626',
+              800: '#151f35',
+              750: '#1b2845',
+              700: '#223254',
+              cyan: '#06b6d4',
+              neon: '#38bdf8'
+            }
+          },
+          fontFamily: {
+            mono: ['JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'monospace'],
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    /* Technical Grid Backdrop */
+    body {
+      background-color: #060911;
+      background-image: 
+        radial-gradient(circle at 50% 0%, rgba(14, 165, 233, 0.12) 0%, transparent 65%),
+        linear-gradient(rgba(14, 165, 233, 0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(14, 165, 233, 0.04) 1px, transparent 1px);
+      background-size: 100% 100%, 36px 36px, 36px 36px;
+      background-position: 0 0, -1px -1px, -1px -1px;
+    }
+
+    /* Custom scrollbars */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #060911; }
+    ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #0284c7; }
+
+    /* Tactical HUD Accents */
+    .aegis-panel {
+      background: linear-gradient(135deg, rgba(15, 22, 38, 0.85) 0%, rgba(10, 14, 26, 0.95) 100%);
+      border: 1px solid rgba(56, 189, 248, 0.18);
+      box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+      backdrop-filter: blur(8px);
+    }
+
+    .aegis-panel:hover {
+      border-color: rgba(56, 189, 248, 0.32);
+    }
+
+    /* Glow Pulses */
+    .glow-cyan {
+      box-shadow: 0 0 16px rgba(6, 182, 212, 0.4);
+    }
+    .glow-emerald {
+      box-shadow: 0 0 16px rgba(16, 185, 129, 0.4);
+    }
+    .glow-rose {
+      box-shadow: 0 0 16px rgba(244, 63, 94, 0.5);
+    }
+    .glow-amber {
+      box-shadow: 0 0 16px rgba(245, 158, 11, 0.4);
+    }
+
+    /* Corner brackets for aerospace command styling */
+    .tactical-box {
+      position: relative;
+    }
+    .tactical-box::before {
+      content: '';
+      position: absolute;
+      top: -1px;
+      left: -1px;
+      width: 8px;
+      height: 8px;
+      border-top: 2px solid #38bdf8;
+      border-left: 2px solid #38bdf8;
+      pointer-events: none;
+    }
+    .tactical-box::after {
+      content: '';
+      position: absolute;
+      bottom: -1px;
+      right: -1px;
+      width: 8px;
+      height: 8px;
+      border-bottom: 2px solid #38bdf8;
+      border-right: 2px solid #38bdf8;
+      pointer-events: none;
+    }
+
+    /* Subtle animation keyframes */
+    @keyframes subtlePulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.75; transform: scale(0.98); }
+    }
+    .animate-subtle {
+      animation: subtlePulse 3s ease-in-out infinite;
+    }
+  </style>
+</head>
+<body class="text-slate-200 min-h-screen font-sans antialiased selection:bg-cyan-500 selection:text-black flex flex-col justify-between">
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="fixed top-5 right-5 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+  <div>
+    <!-- TOP STATUS BAR & COMMAND HEADER -->
+    <header class="border-b border-cyan-900/40 bg-aegis-950/90 backdrop-blur sticky top-0 z-40 px-4 lg:px-8 py-3.5 shadow-xl">
+      <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
+        
+        <!-- Brand & Title -->
+        <div class="flex items-center gap-3.5">
+          <!-- Cyber Beacon -->
+          <div class="relative flex items-center justify-center">
+            <div class="w-3.5 h-3.5 rounded-full bg-cyan-400 glow-cyan animate-pulse" id="cluster-indicator"></div>
+            <div class="absolute w-6 h-6 rounded-full border border-cyan-400/30 animate-ping"></div>
+          </div>
+
+          <div>
+            <div class="flex items-center gap-2.5">
+              <h1 class="text-lg font-black tracking-widest font-mono uppercase text-white flex items-center gap-2">
+                <span class="text-cyan-400">AEGIS</span>
+              </h1>
+              <span class="text-[10px] font-mono tracking-wider px-2 py-0.5 rounded bg-cyan-950/80 border border-cyan-700/60 text-cyan-300 font-bold uppercase shadow-sm">
+                COMMAND CENTER
+              </span>
+            </div>
+            <p class="text-[11px] text-slate-400 font-mono tracking-wider uppercase">
+              FAULT-TOLERANT DISTRIBUTED OBJECT STORAGE
+            </p>
+          </div>
+        </div>
+
+        <!-- Compact Product Identity Line -->
+        <div class="hidden xl:flex items-center gap-2 font-mono text-xs px-3 py-1.5 rounded-lg bg-aegis-900/90 border border-cyan-800/40 text-cyan-300 shadow-inner">
+          <span class="inline-block w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping"></span>
+          <span class="font-bold tracking-wider">AEGIS ENGINE // QUORUM STORAGE // SELF-HEALING ACTIVE</span>
+        </div>
+
+        <!-- Quick Metrics Ribbon -->
+        <div class="flex flex-wrap items-center gap-2 md:gap-3 text-xs font-mono">
+          <div class="px-3 py-1.5 rounded-lg bg-aegis-900/90 border border-aegis-750 flex items-center gap-2 shadow">
+            <span class="text-slate-400 text-[11px]">CLUSTER:</span>
+            <span id="stat-cluster-status" class="font-bold text-emerald-400">HEALTHY</span>
+          </div>
+          <div class="px-3 py-1.5 rounded-lg bg-aegis-900/90 border border-aegis-750 flex items-center gap-2 shadow">
+            <span class="text-slate-400 text-[11px]">NODES:</span>
+            <span id="stat-active-nodes" class="text-white font-bold">5 / 5</span>
+          </div>
+          <div class="px-3 py-1.5 rounded-lg bg-aegis-900/90 border border-aegis-750 flex items-center gap-2 shadow">
+            <span class="text-slate-400 text-[11px]">OBJECTS:</span>
+            <span id="stat-total-objects" class="text-white font-bold">0</span>
+          </div>
+          <div class="px-3 py-1.5 rounded-lg bg-aegis-900/90 border border-aegis-750 flex items-center gap-2 shadow">
+            <span class="text-slate-400 text-[11px]">USED:</span>
+            <span id="stat-storage-used" class="text-white font-bold">0 B</span>
+          </div>
+          <div class="px-3 py-1.5 rounded-lg bg-aegis-900/90 border border-aegis-750 flex items-center gap-2 shadow">
+            <span class="text-emerald-400 font-bold">✓ <span id="stat-healthy-replicas">0</span></span>
+            <span class="text-rose-400 font-bold">✗ <span id="stat-corrupt-replicas">0</span></span>
+          </div>
+          <button onclick="refreshAll()" class="p-2 rounded-lg bg-aegis-900 border border-aegis-750 hover:border-cyan-500 text-slate-400 hover:text-cyan-300 transition shadow" title="Manual Cluster Refresh">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+          </button>
+        </div>
+
+      </div>
+    </header>
+
+    <!-- MAIN WRAPPER -->
+    <main class="max-w-7xl mx-auto px-4 lg:px-8 py-6 space-y-6">
+
+      <!-- WORKFLOW DEMO STRIP -->
+      <div id="demo-flow-banner" class="aegis-panel rounded-xl p-3.5 flex flex-wrap items-center justify-between gap-3 text-xs font-mono">
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="text-cyan-400 font-bold uppercase tracking-wider text-[11px] flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded bg-cyan-400"></span>
+            PIPELINE FLOW:
+          </span>
+          <span class="px-2.5 py-1 rounded bg-cyan-950/70 border border-cyan-800/80 text-cyan-300 font-semibold shadow-sm">
+            1. INGEST (R=3)
+          </span>
+          <span class="text-slate-500 font-bold">→</span>
+          <span class="px-2.5 py-1 rounded bg-rose-950/70 border border-rose-800/80 text-rose-300 font-semibold shadow-sm">
+            2. FAULT INJECTION
+          </span>
+          <span class="text-slate-500 font-bold">→</span>
+          <span class="px-2.5 py-1 rounded bg-amber-950/70 border border-amber-800/80 text-amber-300 font-semibold shadow-sm">
+            3. INTEGRITY SCAN
+          </span>
+          <span class="text-slate-500 font-bold">→</span>
+          <span class="px-2.5 py-1 rounded bg-emerald-950/70 border border-emerald-800/80 text-emerald-300 font-semibold shadow-sm">
+            4. SELF-HEAL
+          </span>
+        </div>
+        <div class="text-slate-400 text-xs flex items-center gap-2">
+          <span class="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+          <span>Telemetry Stream: <span class="text-emerald-400 font-bold">ACTIVE (2s)</span></span>
+        </div>
+      </div>
+
+      <!-- SECTION 1 — STORAGE NODE TOPOLOGY RACK -->
+      <section>
+        <div class="flex items-center justify-between mb-3.5">
+          <h2 class="text-xs font-mono font-bold tracking-widest uppercase text-cyan-300 flex items-center gap-2">
+            <span class="text-slate-500">//</span>
+            <span>SECTION 1: STORAGE NODE TOPOLOGY RACK</span>
+            <span class="text-[10px] text-slate-400 font-normal px-1.5 py-0.5 rounded bg-aegis-900 border border-aegis-750">(5 ISOLATED DISK TARGETS)</span>
+          </h2>
+        </div>
+
+        <div id="node-rack-grid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3.5">
+          <!-- Rendered dynamically via JS -->
+        </div>
+      </section>
+
+      <!-- SECTION 2 & 6: INGESTION CONSOLE & CLUSTER INTEGRITY -->
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
+        <!-- Section 2: Ingestion Console (2 cols) -->
+        <section class="lg:col-span-2 aegis-panel tactical-box rounded-xl p-5">
+          <h2 class="text-xs font-mono font-bold tracking-widest uppercase text-cyan-300 mb-3 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="text-slate-500">//</span>
+              <span>SECTION 2: OBJECT INGESTION ENGINE</span>
+            </div>
+            <span class="text-slate-400 text-[11px] font-normal">Deterministic Quorum Placement</span>
+          </h2>
+
+          <form id="upload-form" onsubmit="handleUpload(event)" class="space-y-4">
+            <!-- Dropzone with crosshair styling -->
+            <div id="dropzone" 
+                 class="border-2 border-dashed border-aegis-750 hover:border-cyan-400/80 bg-aegis-950/80 rounded-xl p-6 text-center cursor-pointer transition flex flex-col items-center justify-center gap-2.5 relative group"
+                 onclick="document.getElementById('file-input').click()">
+              <div class="w-12 h-12 rounded-xl bg-cyan-950/60 border border-cyan-800/60 flex items-center justify-center text-cyan-400 group-hover:scale-110 transition shadow-inner">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+              </div>
+              <div class="text-sm font-semibold text-slate-200">
+                <span class="text-cyan-400 hover:underline">Select Payload</span> or drag file into target zone
+              </div>
+              <p class="text-xs text-slate-400 font-mono" id="file-selection-label">Supports any binary or text file (up to 50 MB)</p>
+              <input type="file" id="file-input" class="hidden" onchange="onFileSelected(this)">
+            </div>
+
+            <div class="flex flex-wrap items-center justify-between gap-4 pt-1">
+              <!-- Replication Factor Selector -->
+              <div class="flex items-center gap-2 font-mono text-xs">
+                <span class="text-slate-400">Replication Factor:</span>
+                <div class="inline-flex rounded-lg bg-aegis-950 p-1 border border-aegis-750 shadow-inner" id="rf-selector">
+                  <button type="button" onclick="setRF(1)" class="rf-btn px-2.5 py-1 rounded text-xs transition" data-rf="1">R=1</button>
+                  <button type="button" onclick="setRF(2)" class="rf-btn px-2.5 py-1 rounded text-xs transition" data-rf="2">R=2</button>
+                  <button type="button" onclick="setRF(3)" class="rf-btn px-2.5 py-1 rounded text-xs transition bg-cyan-600 text-white font-bold shadow" data-rf="3">R=3</button>
+                  <button type="button" onclick="setRF(4)" class="rf-btn px-2.5 py-1 rounded text-xs transition" data-rf="4">R=4</button>
+                  <button type="button" onclick="setRF(5)" class="rf-btn px-2.5 py-1 rounded text-xs transition" data-rf="5">R=5</button>
+                </div>
+              </div>
+
+              <!-- Upload Button -->
+              <button type="submit" id="upload-btn" class="px-5 py-2.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-black font-mono text-xs font-black tracking-wider transition flex items-center gap-2 shadow-lg shadow-cyan-900/40 disabled:opacity-50">
+                <span>COMMIT OBJECT</span>
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+              </button>
+            </div>
+          </form>
+        </section>
+
+        <!-- Section 6 & 7: Cluster Health & Chaos Controls (1 col) -->
+        <section class="aegis-panel tactical-box rounded-xl p-5 flex flex-col justify-between">
+          <div>
+            <h2 class="text-xs font-mono font-bold tracking-widest uppercase text-cyan-300 mb-3 flex items-center gap-2">
+              <span class="text-slate-500">//</span>
+              <span>SECTION 6: CLUSTER INTEGRITY MATRIX</span>
+            </h2>
+
+            <!-- Health Bar -->
+            <div class="space-y-3 font-mono">
+              <div class="flex justify-between text-xs">
+                <span class="text-slate-400">INTEGRITY SCORE</span>
+                <span id="health-percentage" class="text-emerald-400 font-black">100%</span>
+              </div>
+              <div class="w-full bg-aegis-950 h-3 rounded-full overflow-hidden border border-aegis-750 shadow-inner">
+                <div id="health-bar-fill" class="h-full bg-emerald-500 transition-all duration-500 glow-emerald" style="width: 100%;"></div>
+              </div>
+
+              <div class="grid grid-cols-3 gap-2 pt-2 text-center text-xs">
+                <div class="bg-aegis-950/90 p-2 rounded-lg border border-emerald-900/60 shadow">
+                  <div class="text-slate-400 text-[10px]">HEALTHY</div>
+                  <div class="text-emerald-400 font-black text-sm" id="health-metric-healthy">0</div>
+                </div>
+                <div class="bg-aegis-950/90 p-2 rounded-lg border border-rose-900/60 shadow">
+                  <div class="text-slate-400 text-[10px]">CORRUPT</div>
+                  <div class="text-rose-400 font-black text-sm" id="health-metric-corrupt">0</div>
+                </div>
+                <div class="bg-aegis-950/90 p-2 rounded-lg border border-amber-900/60 shadow">
+                  <div class="text-slate-400 text-[10px]">MISSING</div>
+                  <div class="text-amber-400 font-black text-sm" id="health-metric-missing">0</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Section 7: Chaos Controls -->
+          <div class="pt-4 border-t border-aegis-750/70 mt-4">
+            <div class="text-[10px] font-mono uppercase text-rose-400 tracking-wider mb-2 font-bold flex items-center gap-1.5">
+              <span class="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse"></span>
+              <span>SECTION 7: CHAOS FAULT INJECTION</span>
+            </div>
+            <p class="text-xs text-slate-400 mb-2.5">Simulate disk bit-rot from the Object Inventory below, or trigger node state transitions:</p>
+            <div class="flex gap-2">
+              <button onclick="toggleAllNodes(false)" class="flex-1 px-2.5 py-1.5 rounded-lg bg-rose-950/70 border border-rose-800 text-rose-300 hover:bg-rose-900 text-xs font-mono font-semibold transition shadow">
+                Fail Random Node
+              </button>
+              <button onclick="toggleAllNodes(true)" class="flex-1 px-2.5 py-1.5 rounded-lg bg-emerald-950/70 border border-emerald-800 text-emerald-300 hover:bg-emerald-900 text-xs font-mono font-semibold transition shadow">
+                Revive All Nodes
+              </button>
+            </div>
+          </div>
+        </section>
+
+      </div>
+
+      <!-- SECTION 3: OBJECT INVENTORY TABLE -->
+      <section class="aegis-panel rounded-xl p-5 shadow-xl">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-xs font-mono font-bold tracking-widest uppercase text-cyan-300 flex items-center gap-2">
+            <span class="text-slate-500">//</span>
+            <span>SECTION 3: STORED OBJECT INVENTORY</span>
+            <span class="text-xs text-slate-400 font-normal" id="object-count-badge">(0 objects)</span>
+          </h2>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-xs font-mono">
+            <thead class="border-b border-aegis-750 text-slate-400 uppercase text-[10px] tracking-wider">
+              <tr>
+                <th class="py-2.5 px-3">Object / Identifier</th>
+                <th class="py-2.5 px-3">Payload Size</th>
+                <th class="py-2.5 px-3">SHA-256 Checksum</th>
+                <th class="py-2.5 px-3">Replication</th>
+                <th class="py-2.5 px-3">Replica Placement</th>
+                <th class="py-2.5 px-3 text-right">Integrity Actions</th>
+              </tr>
+            </thead>
+            <tbody id="objects-table-body" class="divide-y divide-aegis-800/80">
+              <!-- Dynamic rows -->
+              <tr>
+                <td colspan="6" class="py-8 text-center text-slate-500">Loading stored objects...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- SECTION 5: LIVE AUDIT TERMINAL -->
+      <section class="aegis-panel rounded-xl p-5 shadow-xl">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-xs font-mono font-bold tracking-widest uppercase text-cyan-300 flex items-center gap-2">
+            <span class="inline-block w-2 h-2 rounded-full bg-cyan-400 animate-ping"></span>
+            <span class="text-slate-500">//</span>
+            <span>SECTION 5: LIVE AUDIT & TELEMETRY STREAM</span>
+            <span class="text-[10px] text-slate-400 font-normal">REAL-TIME QUORUM LOGS</span>
+          </h2>
+          <div class="flex items-center gap-2 text-xs font-mono">
+            <button onclick="fetchEvents()" class="px-2.5 py-1 rounded-md bg-aegis-800 border border-aegis-700 hover:border-cyan-500 text-slate-300 hover:text-cyan-300 transition text-[11px]">
+              Refresh Log
+            </button>
+          </div>
+        </div>
+
+        <div id="audit-terminal" class="bg-black/90 rounded-xl p-4 font-mono text-[11px] h-52 overflow-y-auto border border-aegis-750 space-y-1.5 text-slate-300 shadow-inner">
+          <!-- Log entries stream here -->
+        </div>
+      </section>
+
+    </main>
+
+    <!-- SECTION 4: REPLICA INTEGRITY INSPECTOR MODAL -->
+    <div id="inspector-modal" class="fixed inset-0 bg-black/85 backdrop-blur-md z-50 hidden flex items-center justify-center p-4">
+      <div class="aegis-panel tactical-box max-w-2xl w-full p-6 shadow-2xl space-y-4 rounded-xl">
+        
+        <div class="flex items-center justify-between border-b border-aegis-750 pb-3">
+          <div>
+            <h3 class="text-sm font-bold font-mono text-white flex items-center gap-2">
+              <span class="text-cyan-400">REPLICA INTEGRITY INSPECTOR</span>
+              <span class="text-xs text-cyan-300 font-normal px-2 py-0.5 rounded bg-cyan-950/80 border border-cyan-800" id="modal-object-id">...</span>
+            </h3>
+            <p class="text-xs text-slate-400 font-mono" id="modal-filename">filename</p>
+          </div>
+          <button onclick="closeInspector()" class="text-slate-400 hover:text-white p-1">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+        </div>
+
+        <!-- Expected Hash -->
+        <div class="bg-aegis-950 p-3 rounded-lg border border-aegis-750 font-mono text-xs shadow-inner">
+          <span class="text-slate-400">AUTHORITATIVE SHA-256: </span>
+          <span class="text-emerald-400 font-bold" id="modal-expected-hash">...</span>
+        </div>
+
+        <!-- Replicas List -->
+        <div class="space-y-2">
+          <div class="text-xs font-mono text-slate-400 uppercase font-bold tracking-wider">PHYSICAL REPLICAS ON DISK:</div>
+          <div id="modal-replicas-list" class="space-y-2.5 max-h-60 overflow-y-auto">
+            <!-- Rendered dynamically -->
+          </div>
+        </div>
+
+        <!-- Modal Footer -->
+        <div class="flex items-center justify-between border-t border-aegis-750 pt-4 font-mono text-xs">
+          <div id="modal-status-summary" class="text-slate-300">Checking...</div>
+          <div class="flex gap-2">
+            <button id="modal-repair-btn" onclick="executeModalRepair()" class="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition flex items-center gap-1.5 shadow-lg shadow-emerald-950/50">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+              <span>SELF-HEAL OBJECT</span>
+            </button>
+            <button onclick="closeInspector()" class="px-4 py-1.5 rounded-lg bg-aegis-800 hover:bg-aegis-700 text-slate-300 border border-aegis-700">Close</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- DISTINCTIVE AEGIS FOOTER -->
+  <footer class="border-t border-cyan-900/30 bg-aegis-950/80 px-4 py-4 text-center font-mono text-xs text-slate-400 mt-8">
+    <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-2">
+        <span class="w-2 h-2 rounded-full bg-cyan-400"></span>
+        <span class="text-slate-300 font-bold tracking-wider">AEGIS // Distributed Storage • Integrity First • Self-Healing by Design</span>
+      </div>
+      <div class="text-[11px] text-slate-400">
+        Local Autonomous Cluster Mode (Windows Native)
+      </div>
+    </div>
+  </footer>
+
+  <!-- JAVASCRIPT CONTROL ENGINE -->
+  <script>
+    let currentRF = 3;
+    let inspectingObjectId = null;
+    let selectedFile = null;
+
+    // Toast Notification System
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toast-container');
+      const toast = document.createElement('div');
+      
+      const colors = {
+        success: 'bg-emerald-950/95 border-emerald-500 text-emerald-200 glow-emerald',
+        error: 'bg-rose-950/95 border-rose-500 text-rose-200 glow-rose',
+        warning: 'bg-amber-950/95 border-amber-500 text-amber-200 glow-amber',
+        info: 'bg-aegis-900/95 border-cyan-500 text-cyan-200 glow-cyan'
+      };
+
+      toast.className = `px-4 py-2.5 rounded-lg border shadow-2xl text-xs font-mono pointer-events-auto transition-all duration-300 opacity-0 translate-y-2 ${colors[type] || colors.info}`;
+      toast.innerHTML = `<div class="flex items-center gap-2 font-semibold"><span>${message}</span></div>`;
+      
+      container.appendChild(toast);
+      requestAnimationFrame(() => {
+        toast.classList.remove('opacity-0', 'translate-y-2');
+      });
+
+      setTimeout(() => {
+        toast.classList.add('opacity-0');
+        setTimeout(() => toast.remove(), 300);
+      }, 4000);
+    }
+
+    // Replication Factor Selector
+    function setRF(rf) {
+      currentRF = rf;
+      document.querySelectorAll('.rf-btn').forEach(btn => {
+        const btnRF = parseInt(btn.getAttribute('data-rf'));
+        if (btnRF === rf) {
+          btn.className = 'rf-btn px-2.5 py-1 rounded text-xs transition bg-cyan-600 text-white font-bold shadow';
+        } else {
+          btn.className = 'rf-btn px-2.5 py-1 rounded text-xs transition text-slate-400 hover:text-white';
+        }
+      });
+    }
+
+    function onFileSelected(input) {
+      if (input.files && input.files[0]) {
+        selectedFile = input.files[0];
+        document.getElementById('file-selection-label').innerHTML = 
+          `<span class="text-cyan-300 font-bold">${selectedFile.name}</span> (${formatBytes(selectedFile.size)})`;
+      }
+    }
+
+    // Drag and drop listeners
+    const dropzone = document.getElementById('dropzone');
+    dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('border-cyan-400'); });
+    dropzone.addEventListener('dragleave', () => { dropzone.classList.remove('border-cyan-400'); });
+    dropzone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropzone.classList.remove('border-cyan-400');
+      if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+        selectedFile = e.dataTransfer.files[0];
+        document.getElementById('file-selection-label').innerHTML = 
+          `<span class="text-cyan-300 font-bold">${selectedFile.name}</span> (${formatBytes(selectedFile.size)})`;
+      }
+    });
+
+    // Format bytes utility
+    function formatBytes(bytes) {
+      if (!bytes || bytes === 0) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+    }
+
+    // --- API CALLS & REFRESH ---
+
+    async function fetchStats() {
+      try {
+        const res = await fetch('/api/stats');
+        if (!res.ok) return;
+        const stats = await res.json();
+
+        // Update Top Bar
+        const isOK = (stats.cluster_status === 'OK');
+        const statusEl = document.getElementById('stat-cluster-status');
+        const indicator = document.getElementById('cluster-indicator');
+        
+        statusEl.textContent = stats.cluster_status;
+        if (isOK) {
+          statusEl.className = 'font-bold text-emerald-400';
+          indicator.className = 'w-3.5 h-3.5 rounded-full bg-emerald-400 glow-emerald animate-pulse';
+        } else {
+          statusEl.className = 'font-bold text-rose-400 animate-pulse';
+          indicator.className = 'w-3.5 h-3.5 rounded-full bg-rose-500 glow-rose animate-pulse';
+        }
+
+        document.getElementById('stat-active-nodes').textContent = `${stats.active_nodes} / ${stats.total_nodes}`;
+        document.getElementById('stat-total-objects').textContent = stats.total_objects;
+        document.getElementById('stat-storage-used').textContent = formatBytes(stats.total_storage_used_bytes);
+        document.getElementById('stat-healthy-replicas').textContent = stats.healthy_replicas;
+        document.getElementById('stat-corrupt-replicas').textContent = stats.corrupt_replicas;
+
+        // Health Section
+        document.getElementById('health-metric-healthy').textContent = stats.healthy_replicas;
+        document.getElementById('health-metric-corrupt').textContent = stats.corrupt_replicas;
+        document.getElementById('health-metric-missing').textContent = stats.missing_replicas;
+
+        const totalReplicas = stats.healthy_replicas + stats.corrupt_replicas + stats.missing_replicas;
+        let percentage = 100;
+        if (totalReplicas > 0) {
+          percentage = Math.round((stats.healthy_replicas / totalReplicas) * 100);
+        } else if (stats.active_nodes < stats.total_nodes) {
+          percentage = Math.round((stats.active_nodes / stats.total_nodes) * 100);
+        }
+
+        document.getElementById('health-percentage').textContent = `${percentage}%`;
+        const barFill = document.getElementById('health-bar-fill');
+        barFill.style.width = `${percentage}%`;
+        if (percentage >= 100) {
+          barFill.className = 'h-full bg-emerald-500 transition-all duration-500 glow-emerald';
+        } else if (percentage >= 60) {
+          barFill.className = 'h-full bg-amber-500 transition-all duration-500 glow-amber';
+        } else {
+          barFill.className = 'h-full bg-rose-500 transition-all duration-500 glow-rose';
+        }
+
+      } catch (err) {
+        console.error("Failed to fetch stats:", err);
+      }
+    }
+
+    async function fetchNodes() {
+      try {
+        const res = await fetch('/api/nodes');
+        if (!res.ok) return;
+        const nodes = await res.json();
+        const container = document.getElementById('node-rack-grid');
+        container.innerHTML = '';
+
+        nodes.forEach((node, index) => {
+          const isOnline = (node.status === 'ONLINE');
+          const percentUsed = node.capacity_bytes > 0 
+            ? ((node.storage_used_bytes / node.capacity_bytes) * 100).toFixed(2)
+            : 0;
+
+          const card = document.createElement('div');
+          card.className = `aegis-panel rounded-xl p-4 flex flex-col justify-between transition-all duration-200 ${isOnline ? 'border-cyan-800/40 hover:border-cyan-400/80 shadow-md' : 'border-rose-900/60 bg-rose-950/20'}`;
+
+          card.innerHTML = `
+            <div>
+              <div class="flex items-center justify-between mb-2">
+                <div class="flex items-center gap-1.5">
+                  <span class="w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-400 glow-emerald animate-pulse' : 'bg-rose-500'}"></span>
+                  <span class="font-mono text-xs font-bold text-white tracking-wider">${node.name}</span>
+                </div>
+                <span class="text-[10px] font-mono px-2 py-0.5 rounded font-bold ${isOnline ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' : 'bg-rose-950 text-rose-300 border border-rose-800'}">
+                  ${node.status}
+                </span>
+              </div>
+              <div class="text-[10px] font-mono text-slate-400 truncate mb-3" title="${node.path}">SLOT // 0${index + 1}</div>
+              
+              <div class="space-y-1.5 font-mono text-xs mb-4">
+                <div class="flex justify-between text-slate-400 text-[11px]">
+                  <span>Objects:</span>
+                  <span class="text-white font-semibold">${node.stored_object_count}</span>
+                </div>
+                <div class="flex justify-between text-slate-400 text-[11px]">
+                  <span>Storage:</span>
+                  <span class="text-white font-semibold">${formatBytes(node.storage_used_bytes)}</span>
+                </div>
+                <!-- Capacity Bar -->
+                <div class="w-full bg-aegis-950 h-1.5 rounded-full overflow-hidden border border-aegis-750/70 mt-1">
+                  <div class="h-full bg-cyan-500" style="width: ${Math.max(percentUsed, 3)}%"></div>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              ${isOnline ? `
+                <button onclick="toggleNode('${node.node_id}', false)" class="w-full py-1.5 rounded-lg bg-rose-950/60 hover:bg-rose-900 border border-rose-800/80 text-rose-300 font-mono text-[11px] font-semibold transition shadow">
+                  Take Offline
+                </button>
+              ` : `
+                <button onclick="toggleNode('${node.node_id}', true)" class="w-full py-1.5 rounded-lg bg-emerald-950/60 hover:bg-emerald-900 border border-emerald-800/80 text-emerald-300 font-mono text-[11px] font-semibold transition shadow">
+                  Bring Online
+                </button>
+              `}
+            </div>
+          `;
+          container.appendChild(card);
+        });
+
+      } catch (err) {
+        console.error("Failed to fetch nodes:", err);
+      }
+    }
+
+    async function fetchObjects() {
+      try {
+        const res = await fetch('/api/objects');
+        if (!res.ok) return;
+        const objects = await res.json();
+        
+        document.getElementById('object-count-badge').textContent = `(${objects.length} stored)`;
+        const tbody = document.getElementById('objects-table-body');
+        
+        if (objects.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="6" class="py-8 text-center text-slate-500">No objects stored in cluster. Drag & drop a file above to commit payload.</td></tr>`;
+          return;
+        }
+
+        tbody.innerHTML = '';
+        objects.forEach(obj => {
+          const tr = document.createElement('tr');
+          tr.className = 'hover:bg-cyan-950/20 transition';
+
+          const replicasBadges = obj.replica_nodes.map(nid => 
+            `<span class="px-1.5 py-0.5 rounded bg-aegis-950 border border-cyan-800/50 text-cyan-300 text-[10px] font-bold">${nid}</span>`
+          ).join(' ');
+
+          tr.innerHTML = `
+            <td class="py-3 px-3">
+              <div class="font-bold text-white">${escapeHtml(obj.filename)}</div>
+              <div class="text-[10px] text-slate-400 truncate max-w-xs font-mono" title="${obj.object_id}">${obj.object_id}</div>
+            </td>
+            <td class="py-3 px-3 text-slate-300">${formatBytes(obj.size)}</td>
+            <td class="py-3 px-3">
+              <span class="px-2 py-0.5 rounded bg-aegis-950 border border-aegis-750 text-emerald-400 font-mono text-[10px]" title="${obj.checksum}">
+                ${obj.checksum.substring(0, 12)}...
+              </span>
+            </td>
+            <td class="py-3 px-3 text-slate-300 font-bold">R = ${obj.replication_factor}</td>
+            <td class="py-3 px-3">${replicasBadges}</td>
+            <td class="py-3 px-3 text-right">
+              <div class="inline-flex items-center gap-1.5">
+                <button onclick="downloadObject('${obj.object_id}')" class="px-2 py-1 rounded bg-aegis-800 hover:bg-aegis-750 text-slate-300 text-[11px] border border-aegis-700 transition" title="Download & Verify SHA-256">
+                  Download
+                </button>
+                <button onclick="inspectReplicas('${obj.object_id}')" class="px-2 py-1 rounded bg-cyan-950/80 border border-cyan-800 hover:bg-cyan-900 text-cyan-300 text-[11px] transition" title="Inspect & Verify Replicas">
+                  Inspect
+                </button>
+                <button onclick="injectCorruptionPrompt('${obj.object_id}', '${obj.replica_nodes[0]}')" class="px-2 py-1 rounded bg-rose-950/80 border border-rose-800 hover:bg-rose-900 text-rose-300 text-[11px] transition" title="Inject Bit-Rot">
+                  Bit-Rot
+                </button>
+                <button onclick="repairObject('${obj.object_id}')" class="px-2 py-1 rounded bg-emerald-950/80 border border-emerald-800 hover:bg-emerald-900 text-emerald-300 text-[11px] transition" title="Self-Healing Repair">
+                  Repair
+                </button>
+                <button onclick="deleteObject('${obj.object_id}', '${escapeHtml(obj.filename)}')" class="px-1.5 py-1 rounded hover:bg-rose-950 text-slate-500 hover:text-rose-400 text-[11px] transition" title="Purge Object">
+                  ✕
+                </button>
+              </div>
+            </td>
+          `;
+          tbody.appendChild(tr);
+        });
+
+      } catch (err) {
+        console.error("Failed to fetch objects:", err);
+      }
+    }
+
+    async function fetchEvents() {
+      try {
+        const res = await fetch('/api/events?limit=35');
+        if (!res.ok) return;
+        const events = await res.json();
+        const terminal = document.getElementById('audit-terminal');
+        
+        terminal.innerHTML = events.map(e => {
+          let badgeColor = 'bg-cyan-950 text-cyan-400 border-cyan-800';
+          if (e.event_type.includes('CORRUPT')) badgeColor = 'bg-rose-950 text-rose-400 border-rose-800 font-bold animate-pulse';
+          else if (e.event_type.includes('REPAIR')) badgeColor = 'bg-emerald-950 text-emerald-400 border-emerald-800 font-bold';
+          else if (e.event_type.includes('OFFLINE')) badgeColor = 'bg-amber-950 text-amber-400 border-amber-800';
+          else if (e.event_type.includes('ONLINE')) badgeColor = 'bg-emerald-950 text-emerald-300 border-emerald-800';
+          else if (e.event_type.includes('DELETE')) badgeColor = 'bg-slate-900 text-slate-400 border-slate-700';
+
+          return `
+            <div class="flex items-start gap-2 hover:bg-white/5 p-1 rounded transition">
+              <span class="text-slate-400 whitespace-nowrap">${e.timestamp.split('T')[1] ? e.timestamp.split('T')[1].substring(0, 8) : e.timestamp}</span>
+              <span class="px-1.5 py-0.2 rounded border text-[9px] ${badgeColor}">${e.event_type}</span>
+              <span class="text-cyan-400 font-semibold">${e.target ? '[' + e.target.substring(0, 10) + ']' : ''}</span>
+              <span class="text-slate-200 flex-1">${escapeHtml(e.message)}</span>
+            </div>
+          `;
+        }).join('');
+
+      } catch (err) {
+        console.error("Failed to fetch events:", err);
+      }
+    }
+
+    // --- USER ACTIONS ---
+
+    async function handleUpload(e) {
+      e.preventDefault();
+      if (!selectedFile) {
+        showToast("Please select a file to commit", "warning");
+        return;
+      }
+
+      const btn = document.getElementById('upload-btn');
+      btn.disabled = true;
+      btn.innerHTML = `<span class="animate-spin">⏳</span> REPLICATING...`;
+
+      try {
+        const formData = new FormData();
+        formData.append('file', selectedFile);
+
+        const res = await fetch(`/api/objects?replication_factor=${currentRF}`, {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.detail || 'Upload failed');
+        }
+
+        const data = await res.json();
+        showToast(`Committed '${data.filename}' across ${data.replica_nodes.length} nodes!`, "success");
+        
+        // Reset form
+        selectedFile = null;
+        document.getElementById('file-input').value = '';
+        document.getElementById('file-selection-label').textContent = "Supports any binary or text file (up to 50 MB)";
+
+        refreshAll();
+
+      } catch (err) {
+        showToast(err.message, "error");
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = `<span>COMMIT OBJECT</span><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>`;
+      }
+    }
+
+    async function toggleNode(nodeId, makeOnline) {
+      try {
+        const endpoint = makeOnline ? `/api/nodes/${nodeId}/online` : `/api/nodes/${nodeId}/offline`;
+        const res = await fetch(endpoint, { method: 'POST' });
+        if (!res.ok) throw new Error("Node state transition failed");
+        
+        const data = await res.json();
+        showToast(`Node ${nodeId} is now ${data.new_state}`, makeOnline ? "success" : "warning");
+        refreshAll();
+      } catch (err) {
+        showToast(err.message, "error");
+      }
+    }
+
+    async function toggleAllNodes(bringOnline) {
+      try {
+        const res = await fetch('/api/nodes');
+        const nodes = await res.json();
+        if (bringOnline) {
+          for (const n of nodes) {
+            await fetch(`/api/nodes/${n.node_id}/online`, { method: 'POST' });
+          }
+          showToast("All nodes brought ONLINE", "success");
+        } else {
+          // Take first online node offline
+          const onlineNode = nodes.find(n => n.status === 'ONLINE');
+          if (onlineNode) {
+            await fetch(`/api/nodes/${onlineNode.node_id}/offline`, { method: 'POST' });
+            showToast(`Node ${onlineNode.node_id} taken OFFLINE`, "warning");
+          }
+        }
+        refreshAll();
+      } catch (err) {
+        showToast(err.message, "error");
+      }
+    }
+
+    function downloadObject(objectId) {
+      window.location.href = `/api/objects/${objectId}/download`;
+      showToast("Download initiated with SHA-256 verification", "info");
+    }
+
+    async function injectCorruptionPrompt(objectId, defaultNode) {
+      try {
+        const res = await fetch(`/api/objects/${objectId}/replicas/${defaultNode}/corrupt`, { method: 'POST' });
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.detail || "Corruption failed");
+        }
+        showToast(`Injected bit-rot on ${defaultNode}! SHA-256 integrity compromised.`, "error");
+        refreshAll();
+        // Also open inspector to visualize corruption immediately!
+        inspectReplicas(objectId);
+      } catch (err) {
+        showToast(err.message, "error");
+      }
+    }
+
+    async function repairObject(objectId) {
+      try {
+        showToast("Triggering self-healing repair...", "info");
+        const res = await fetch(`/api/objects/${objectId}/repair`, { method: 'POST' });
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.detail || "Repair failed");
+        }
+        const data = await res.json();
+        showToast(data.message, "success");
+        refreshAll();
+        if (inspectingObjectId === objectId) {
+          inspectReplicas(objectId);
+        }
+      } catch (err) {
+        showToast(err.message, "error");
+      }
+    }
+
+    async function deleteObject(objectId, filename) {
+      if (!confirm(`Are you sure you want to purge '${filename}' from all nodes?`)) return;
+      try {
+        const res = await fetch(`/api/objects/${objectId}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error("Delete failed");
+        showToast(`Purged '${filename}' from all nodes`, "info");
+        refreshAll();
+      } catch (err) {
+        showToast(err.message, "error");
+      }
+    }
+
+    // --- REPLICA INSPECTOR MODAL ---
+
+    async function inspectReplicas(objectId) {
+      inspectingObjectId = objectId;
+      const modal = document.getElementById('inspector-modal');
+      modal.classList.remove('hidden');
+
+      document.getElementById('modal-object-id').textContent = objectId;
+      document.getElementById('modal-expected-hash').textContent = "Fetching...";
+      const listContainer = document.getElementById('modal-replicas-list');
+      listContainer.innerHTML = '<div class="text-slate-400 py-3 text-center">Verifying physical replicas on disk...</div>';
+
+      try {
+        const res = await fetch(`/api/objects/${objectId}/verify`);
+        if (!res.ok) throw new Error("Verification failed");
+        const report = await res.json();
+
+        document.getElementById('modal-expected-hash').textContent = report.expected_checksum;
+
+        listContainer.innerHTML = report.replicas.map(r => {
+          let badge = `<span class="px-2 py-0.5 rounded bg-emerald-950 border border-emerald-800 text-emerald-400 font-bold">HEALTHY</span>`;
+          let rowClass = 'border-aegis-750';
+
+          if (r.status === 'CORRUPTED' || !r.healthy) {
+            badge = `<span class="px-2 py-0.5 rounded bg-rose-950 border border-rose-800 text-rose-400 font-bold animate-pulse">CORRUPTED</span>`;
+            rowClass = 'border-rose-800 bg-rose-950/20';
+          } else if (r.status === 'UNAVAILABLE' || r.node_state === 'OFFLINE') {
+            badge = `<span class="px-2 py-0.5 rounded bg-amber-950 border border-amber-800 text-amber-400 font-bold">NODE OFFLINE</span>`;
+            rowClass = 'border-amber-800 bg-amber-950/20';
+          } else if (r.status === 'MISSING') {
+            badge = `<span class="px-2 py-0.5 rounded bg-slate-900 border border-slate-700 text-slate-400 font-bold">MISSING ON DISK</span>`;
+          }
+
+          return `
+            <div class="bg-aegis-950 p-3 rounded-lg border ${rowClass} flex items-center justify-between text-xs font-mono shadow-inner">
+              <div>
+                <div class="flex items-center gap-2">
+                  <span class="font-bold text-white">${r.node_id}</span>
+                  <span class="text-[10px] text-slate-400">[State: ${r.node_state}]</span>
+                </div>
+                <div class="text-[10px] text-slate-400 mt-1">
+                  SHA-256: <span class="${r.healthy ? 'text-slate-300' : 'text-rose-400 font-bold'}">${r.checksum || 'N/A'}</span>
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                ${badge}
+                ${r.healthy ? `
+                  <button onclick="injectCorruptionPrompt('${objectId}', '${r.node_id}')" class="px-2.5 py-1 rounded bg-rose-950/60 border border-rose-800 text-rose-300 hover:bg-rose-900 text-[10px] transition">
+                    Corrupt
+                  </button>
+                ` : ''}
+              </div>
+            </div>
+          `;
+        }).join('');
+
+        const summaryEl = document.getElementById('modal-status-summary');
+        if (report.corrupt_replicas > 0) {
+          summaryEl.innerHTML = `<span class="text-rose-400 font-bold animate-pulse">⚠️ ${report.corrupt_replicas} replica(s) corrupted! Click 'Self-Heal Object' to restore.</span>`;
+        } else if (report.missing_replicas > 0) {
+          summaryEl.innerHTML = `<span class="text-amber-400 font-bold">⚠️ ${report.missing_replicas} replica(s) missing/offline.</span>`;
+        } else {
+          summaryEl.innerHTML = `<span class="text-emerald-400 font-bold">✓ All ${report.healthy_replicas} replicas verified healthy on disk.</span>`;
+        }
+
+      } catch (err) {
+        listContainer.innerHTML = `<div class="text-rose-400 py-3 text-center">${err.message}</div>`;
+      }
+    }
+
+    function closeInspector() {
+      document.getElementById('inspector-modal').classList.add('hidden');
+      inspectingObjectId = null;
+    }
+
+    async function executeModalRepair() {
+      if (!inspectingObjectId) return;
+      await repairObject(inspectingObjectId);
+    }
+
+    function escapeHtml(text) {
+      if (!text) return '';
+      return text.replace(/[&<>"']/g, function(m) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m];
+      });
+    }
+
+    function refreshAll() {
+      fetchStats();
+      fetchNodes();
+      fetchObjects();
+      fetchEvents();
+    }
+
+    // Initial load & 2-second polling loop
+    window.addEventListener('DOMContentLoaded', () => {
+      refreshAll();
+      setInterval(() => {
+        fetchStats();
+        fetchNodes();
+        fetchEvents();
+      }, 2000);
+    });
+  </script>
+</body>
+</html>
