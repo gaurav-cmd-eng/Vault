@@ -63,8 +63,10 @@ class ObjectMetadata(BaseModel):
 class ReplicaVerificationDetail(BaseModel):
     """Integrity check detail for a single replica node."""
     node_id: str
+    node_state: str = "ONLINE"
     exists: bool
     healthy: bool
+    status: str = "HEALTHY"  # HEALTHY, CORRUPTED, MISSING, UNAVAILABLE
     checksum: Optional[str] = None
 
 class ObjectVerificationReport(BaseModel):
@@ -75,3 +77,35 @@ class ObjectVerificationReport(BaseModel):
     healthy_replicas: int
     corrupt_replicas: int
     missing_replicas: int
+    unavailable_replicas: int = 0
+
+
+# --- Phase 3 Chaos Engineering & Repair Models ---
+
+class NodeStateTransitionResponse(BaseModel):
+    """Result of taking a node offline, online, or partitioned."""
+    node_id: str
+    previous_state: str
+    new_state: str
+    timestamp: str
+
+class ReplicaCorruptionResponse(BaseModel):
+    """Result of injecting byte-level corruption into a physical replica."""
+    object_id: str
+    node_id: str
+    status: str = "CORRUPTED"
+    corrupted_checksum: str
+    original_checksum: str
+    message: str
+
+class ObjectRepairResponse(BaseModel):
+    """Result of a self-healing replica repair operation."""
+    object_id: str
+    repaired_replicas: List[str]
+    source_replica: Optional[str] = None
+    failed_repairs: List[Dict[str, Any]] = []
+    healthy_replicas: int
+    corrupt_replicas: int
+    missing_replicas: int
+    unavailable_replicas: int = 0
+    message: str

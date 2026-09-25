@@ -11,7 +11,13 @@ from app.storage.node_manager import node_manager
 from app.events.event_bus import event_bus
 from app.events.types import EventType
 from app.utils.logger import logger
-from app.models.schemas import ObjectMetadata, ObjectVerificationReport, ReplicaVerificationDetail
+from app.models.schemas import (
+    ObjectMetadata,
+    ObjectVerificationReport,
+    ReplicaVerificationDetail,
+    ReplicaCorruptionResponse,
+    ObjectRepairResponse,
+)
 
 class ReplicationError(Exception):
     """Raised when replication requirements cannot be satisfied."""
@@ -26,7 +32,7 @@ class ObjectCorruptedError(Exception):
     pass
 
 class ReplicationService:
-    """Manages object storage, replication, retrieval, and integrity verification."""
+    """Manages object storage, replication, retrieval, chaos injection, and self-healing."""
 
     async def store_object(
         self,
@@ -36,9 +42,7 @@ class ReplicationService:
         replication_factor: Optional[int] = None,
         custom_object_id: Optional[str] = None,
     ) -> ObjectMetadata:
-        """
-        Stores an uploaded object across multiple storage nodes according to replication factor.
-        """
+        """Stores an uploaded object across multiple storage nodes according to replication factor."""
         if replication_factor is None:
             replication_factor = settings.default_replication_factor
 
@@ -254,9 +258,71 @@ class ReplicationService:
 
         raise ObjectCorruptedError(f"No valid replica found for object '{object_id}'. All replicas failed or missing.")
 
+    async def corrupt_replica(self, object_id: str, node_id: str) -> ReplicaCorruptionResponse:
+        """
+        Injects deterministic corruption into exactly one physical replica on disk.
+        Does NOT touch object metadata or expected SHA-256.
+        """
+        meta = await self.get_object_metadata(object_id)
+        if not meta:
+            raise ObjectNotFoundError(f"Object '{object_id}' not found")
+
+        if node_id not in meta.replica_nodes:
+            raise ReplicationError(f"Node '{node_id}' is not an assigned replica for object '{object_id}'")
+
+        node = node_manager.get_node(node_id)
+        if not node or not node.is_online:
+            raise ReplicationError(f"Node '{node_id}' is not online or unavailable")
+
+        path = node.get_object_path(object_id)
+        if not path.exists():
+            raise ObjectNotFoundError(f"Physical replica file does not exist on node '{node_id}'")
+
+        data = path.read_bytes()
+
+        # Deterministic, obvious corruption: alter bytes
+        if len(data) >= 8:
+            corrupted_data = b"CORRUPT!" + data[8:]
+        else:
+            corrupted_data = b"CORRUPTED_" + data
+
+        # Write directly to disk
+        path.write_bytes(corrupted_data)
+        corrupted_hash = compute_sha256(corrupted_data)
+
+        # Update replica status in database
+        await db.execute(
+            "UPDATE replicas SET status='CORRUPTED' WHERE object_id=? AND node_id=?",
+            (object_id, node_id),
+        )
+
+        logger.info(f"[CHAOS] Corruption injected into {object_id} on {node_id}")
+
+        await event_bus.emit(
+            EventType.CORRUPTION_INJECTED,
+            target=object_id,
+            message=f"Corruption injected into replica on node {node_id}",
+            details={
+                "object_id": object_id,
+                "node_id": node_id,
+                "corrupted_checksum": corrupted_hash,
+                "original_checksum": meta.checksum,
+            },
+        )
+
+        return ReplicaCorruptionResponse(
+            object_id=object_id,
+            node_id=node_id,
+            status="CORRUPTED",
+            corrupted_checksum=corrupted_hash,
+            original_checksum=meta.checksum,
+            message=f"Physical replica on node {node_id} successfully corrupted",
+        )
+
     async def verify_object(self, object_id: str) -> ObjectVerificationReport:
         """
         Checks all known replicas of an object on disk and verifies their SHA-256 hashes.
+        Reports healthy, corrupt, missing, and unavailable status.
         """
         meta = await self.get_object_metadata(object_id)
         if not meta:
@@ -267,65 +333,96 @@ class ReplicationService:
         healthy_count = 0
         corrupt_count = 0
         missing_count = 0
+        unavailable_count = 0
 
         for node_id in meta.replica_nodes:
             node = node_manager.get_node(node_id)
             if not node:
                 missing_count += 1
                 replica_details.append(
-                    ReplicaVerificationDetail(node_id=node_id, exists=False, healthy=False)
+                    ReplicaVerificationDetail(
+                        node_id=node_id,
+                        node_state="OFFLINE",
+                        exists=False,
+                        healthy=False,
+                        status="MISSING",
+                    )
+                )
+                continue
+
+            # Check if node is offline or partitioned
+            if not node.is_online:
+                unavailable_count += 1
+                replica_details.append(
+                    ReplicaVerificationDetail(
+                        node_id=node_id,
+                        node_state=node.status,
+                        exists=False,
+                        healthy=False,
+                        status="UNAVAILABLE",
+                    )
                 )
                 continue
 
             try:
-                if not node.is_online:
-                    missing_count += 1
-                    replica_details.append(
-                        ReplicaVerificationDetail(node_id=node_id, exists=False, healthy=False)
-                    )
-                    continue
-
                 data = await asyncio.to_thread(node.read_object, object_id)
                 if data is None:
                     missing_count += 1
                     replica_details.append(
-                        ReplicaVerificationDetail(node_id=node_id, exists=False, healthy=False)
+                        ReplicaVerificationDetail(
+                            node_id=node_id,
+                            node_state="ONLINE",
+                            exists=False,
+                            healthy=False,
+                            status="MISSING",
+                        )
                     )
                 else:
                     actual_checksum = compute_sha256(data)
                     is_healthy = (actual_checksum.lower() == expected_checksum.lower())
                     if is_healthy:
                         healthy_count += 1
+                        rep_status = "HEALTHY"
                     else:
                         corrupt_count += 1
+                        rep_status = "CORRUPTED"
 
                     replica_details.append(
                         ReplicaVerificationDetail(
                             node_id=node_id,
+                            node_state="ONLINE",
                             exists=True,
                             healthy=is_healthy,
+                            status=rep_status,
                             checksum=actual_checksum,
                         )
                     )
             except Exception:
                 missing_count += 1
                 replica_details.append(
-                    ReplicaVerificationDetail(node_id=node_id, exists=False, healthy=False)
+                    ReplicaVerificationDetail(
+                        node_id=node_id,
+                        node_state="ONLINE",
+                        exists=False,
+                        healthy=False,
+                        status="MISSING",
+                    )
                 )
 
         logger.info(
-            f"[VERIFY] {object_id}: {healthy_count} healthy, {corrupt_count} corrupt, {missing_count} missing"
+            f"[VERIFY] object {object_id}: {healthy_count} healthy, {corrupt_count} corrupt, {missing_count} missing, {unavailable_count} unavailable"
         )
         
         await event_bus.emit(
             EventType.OBJECT_VERIFIED,
             target=object_id,
-            message=f"Verified replicas: {healthy_count} healthy, {corrupt_count} corrupt, {missing_count} missing",
+            message=f"Verified replicas: {healthy_count} healthy, {corrupt_count} corrupt, {missing_count + unavailable_count} missing/unavailable",
             details={
                 "object_id": object_id,
                 "healthy_replicas": healthy_count,
                 "corrupt_replicas": corrupt_count,
                 "missing_replicas": missing_count,
+                "unavailable_replicas": unavailable_count,
             },
         )
 
@@ -335,14 +432,135 @@ class ReplicationService:
             replicas=replica_details,
             healthy_replicas=healthy_count,
             corrupt_replicas=corrupt_count,
-            missing_replicas=missing_count,
+            missing_replicas=missing_count + unavailable_count,
+            unavailable_replicas=unavailable_count,
         )
 
+    async def repair_object(self, object_id: str) -> ObjectRepairResponse:
+        """
+        Self-healing repair service:
+        Finds a verified healthy source replica, copies it atomically to any corrupt or missing nodes,
+        and re-verifies SHA-256 integrity.
+        """
+        async with key_lock_manager.acquire(object_id):
+            meta = await self.get_object_metadata(object_id)
+            if not meta:
+                raise ObjectNotFoundError(f"Object '{object_id}' not found")
+
+            # 1. Locate a verified healthy source replica
+            source_node_id: Optional[str] = None
+            source_data: Optional[bytes] = None
+
+            for nid in meta.replica_nodes:
+                node = node_manager.get_node(nid)
+                if not node or not node.is_online:
+                    continue
+
+                try:
+                    data = await asyncio.to_thread(node.read_object, object_id)
+                    if data and verify_sha256(data, meta.checksum):
+                        source_node_id = nid
+                        source_data = data
+                        logger.info(f"[REPAIR] Source replica: {nid}")
+                        break
+                except Exception:
+                    continue
+
+            if source_data is None:
+                logger.warning(f"[REPAIR] No healthy source replica found for {object_id}")
+                raise ReplicationError(
+                    f"Cannot repair object '{object_id}': No healthy source replica exists in cluster"
+                )
+
+            repaired_nodes: List[str] = []
+            failed_repairs: List[Dict[str, Any]] = []
+
+            # 2. Iterate through replicas needing repair
+            for nid in meta.replica_nodes:
+                if nid == source_node_id:
+                    continue
+
+                node = node_manager.get_node(nid)
+                if not node or not node.is_online:
+                    failed_repairs.append({
+                        "node_id": nid,
+                        "reason": f"Node '{nid}' is OFFLINE or unavailable",
+                    })
+                    continue
+
+                # Check if this node actually needs repair
+                needs_repair = False
+                try:
+                    existing_data = await asyncio.to_thread(node.read_object, object_id)
+                    if existing_data is None or not verify_sha256(existing_data, meta.checksum):
+                        needs_repair = True
+                except Exception:
+                    needs_repair = True
+
+                if needs_repair:
+                    logger.info(f"[REPAIR] Target replica: {nid}")
+                    try:
+                        # Write source content atomically
+                        await asyncio.to_thread(node.write_object, object_id, source_data)
+                        
+                        # Verify SHA-256 on target
+                        verified_data = await asyncio.to_thread(node.read_object, object_id)
+                        if verified_data and verify_sha256(verified_data, meta.checksum):
+                            logger.info("[REPAIR] SHA-256 verified")
+                            logger.info(f"[REPAIR] Replica restored successfully on {nid}")
+                            
+                            # Update database
+                            await db.execute(
+                                "UPDATE replicas SET status='HEALTHY', last_verified_at=CURRENT_TIMESTAMP WHERE object_id=? AND node_id=?",
+                                (object_id, nid),
+                            )
+                            repaired_nodes.append(nid)
+                            
+                            await event_bus.emit(
+                                EventType.REPLICA_REPAIRED,
+                                target=object_id,
+                                message=f"Replica on node {nid} successfully repaired from {source_node_id}",
+                                details={
+                                    "object_id": object_id,
+                                    "target_node": nid,
+                                    "source_node": source_node_id,
+                                },
+                            )
+                        else:
+                            failed_repairs.append({
+                                "node_id": nid,
+                                "reason": "Integrity check failed after write",
+                            })
+                    except Exception as e:
+                        logger.error(f"[REPAIR] Error repairing {nid}: {e}")
+                        failed_repairs.append({
+                            "node_id": nid,
+                            "reason": str(e),
+                        })
+
+            # 3. Final verification report
+            final_report = await self.verify_object(object_id)
+
+            msg = (
+                f"Successfully repaired {len(repaired_nodes)} replica(s)"
+                if repaired_nodes
+                else "No corrupted or missing replicas required repair on active nodes"
+            )
+
+            return ObjectRepairResponse(
+                object_id=object_id,
+                repaired_replicas=repaired_nodes,
+                source_replica=source_node_id,
+                failed_repairs=failed_repairs,
+                healthy_replicas=final_report.healthy_replicas,
+                corrupt_replicas=final_report.corrupt_replicas,
+                missing_replicas=final_report.missing_replicas,
+                unavailable_replicas=final_report.unavailable_replicas,
+                message=msg,
+            )
+
     async def delete_object(self, object_id: str) -> bool:
-        """
-        Deletes object metadata, replica metadata, and physical files from all replica nodes.
-        Safely repeatable.
-        """
+        """Deletes object metadata, replica metadata, and physical files from all replica nodes."""
         async with key_lock_manager.acquire(object_id):
             meta = await self.get_object_metadata(object_id)
             if not meta:

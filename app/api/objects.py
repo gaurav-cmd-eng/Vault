@@ -1,7 +1,12 @@
 from typing import List, Optional
 from fastapi import APIRouter, File, UploadFile, Query, Request, Response, HTTPException, status
 from app.config import settings
-from app.models.schemas import ObjectMetadata, ObjectVerificationReport
+from app.models.schemas import (
+    ObjectMetadata,
+    ObjectVerificationReport,
+    ReplicaCorruptionResponse,
+    ObjectRepairResponse,
+)
 from app.services.replication import (
     replication_service,
     ReplicationError,
@@ -116,6 +121,40 @@ async def verify_object_replicas(object_id: str):
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Object '{object_id}' not found",
         )
+
+@router.post(
+    "/objects/{object_id}/replicas/{node_id}/corrupt",
+    response_model=ReplicaCorruptionResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Inject byte corruption into exactly one physical replica on disk",
+)
+async def corrupt_replica(object_id: str, node_id: str):
+    """
+    Modifies only the selected physical replica on disk, leaving object metadata unchanged.
+    """
+    try:
+        return await replication_service.corrupt_replica(object_id, node_id)
+    except ObjectNotFoundError as oe:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(oe))
+    except ReplicationError as re:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(re))
+
+@router.post(
+    "/objects/{object_id}/repair",
+    response_model=ObjectRepairResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Trigger explicit self-healing repair for an object",
+)
+async def repair_object(object_id: str):
+    """
+    Repairs corrupted or missing replicas using an existing healthy replica as source.
+    """
+    try:
+        return await replication_service.repair_object(object_id)
+    except ObjectNotFoundError as oe:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(oe))
+    except ReplicationError as re:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(re))
 
 @router.delete(
     "/objects/{object_id}",

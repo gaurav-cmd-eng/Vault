@@ -1,4 +1,5 @@
-from typing import Dict, List, Optional
+from datetime import datetime
+from typing import Dict, List, Optional, Any
 from app.config import settings
 from app.storage.node import StorageNode
 from app.database.db import db
@@ -117,6 +118,44 @@ class NodeManager:
             )
 
         return True
+
+    async def set_node_offline(self, node_id: str) -> Optional[Dict[str, Any]]:
+        """Takes a node offline for chaos simulation."""
+        node = self.get_node(node_id)
+        if not node:
+            return None
+        previous_state = node.status
+        await self.set_node_status(node_id, "OFFLINE")
+        logger.info(f"[CHAOS] {node_id} marked OFFLINE")
+
+        await event_bus.emit(
+            EventType.NODE_FAILURE_SIMULATED,
+            target=node_id,
+            message=f"Simulated failure: node {node_id} taken OFFLINE",
+            details={"node_id": node_id, "previous_state": previous_state, "new_state": "OFFLINE"},
+        )
+        return {
+            "node_id": node_id,
+            "previous_state": previous_state,
+            "new_state": "OFFLINE",
+            "timestamp": datetime.now().isoformat(),
+        }
+
+    async def set_node_online(self, node_id: str) -> Optional[Dict[str, Any]]:
+        """Brings a node online."""
+        node = self.get_node(node_id)
+        if not node:
+            return None
+        previous_state = node.status
+        await self.set_node_status(node_id, "ONLINE")
+        logger.info(f"[CHAOS] {node_id} marked ONLINE")
+
+        return {
+            "node_id": node_id,
+            "previous_state": previous_state,
+            "new_state": "ONLINE",
+            "timestamp": datetime.now().isoformat(),
+        }
 
 # Global node manager singleton
 node_manager = NodeManager()
