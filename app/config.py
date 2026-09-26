@@ -27,8 +27,8 @@ class Settings(BaseModel):
     health_check_interval: int = 10           # seconds
     
     # Server network bindings
-    host: str = "127.0.0.1"
-    port: int = 8000
+    host: str = "0.0.0.0"
+    port: int = Field(default_factory=lambda: int(os.getenv("PORT", 8000)))
     
     @property
     def nodes_dir(self) -> Path:
